@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" 
+          content="default-src 'self' js.braintreegateway.com guwzgnjdnchuvypsmzue.supabase.co;
+                  script-src 'self' js.braintreegateway.com;
+                  frame-src js.braintreegateway.com;
+                  connect-src 'self' guwzgnjdnchuvypsmzue.supabase.co">
+    <script src="https://js.braintreegateway.com/web/dropin/1.40.0/js/dropin.min.js"></script>
+    <style>
+        /* Payment Modal */
+        #payment-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 9999;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .modal-content {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            width: 90%;
+            max-width: 500px;
+            position: relative;
+        }
+
+        #dropin-container {
+            min-height: 300px;
+            margin: 20px 0;
+        }
+
+        #submit-payment {
+            width: 100%;
+            padding: 12px;
+            background: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: opacity 0.3s;
+        }
+
+        #submit-payment:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+        }
+
+        .close-btn {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            cursor: pointer;
+            font-size: 24px;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 15px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <!-- Payment Modal -->
+    <div id="payment-modal">
+        <div class="modal-content">
+            <div class="close-btn" onclick="closePayment()">×</div>
+            <div id="dropin-container"></div>
+            <div class="loading">Processing payment...</div>
+            <button id="submit-payment">Pay $1000</button>
+        </div>
+    </div>
+
+    <script>
+    let braintreeInstance;
+    const paymentAmount = "1000.00";
+    const allowedOrigin = "https://app.flutterflow.io/project/socialmedia-bpdi5c"; // CHANGE THIS
+
+    // Initialize Braintree
+    async function initBraintree() {
+        try {
+            document.getElementById('submit-payment').disabled = true;
+            document.querySelector('.loading').style.display = 'block';
+
+            // Get client token
+            const response = await fetch('https://guwzgnjdnchuvypsmzue.supabase.co/functions/v1/generate-client-token', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            const { clientToken } = await response.json();
+
+            // Create Braintree instance
+            braintreeInstance = await braintree.dropin.create({
+                authorization: clientToken,
+                container: '#dropin-container',
+                paymentOptionPriority: ['card', 'paypal'],
+                card: {
+                    cardholderName: true
+                },
+                paypal: {
+                    flow: 'checkout',
+                    amount: paymentAmount,
+                    currency: 'USD'
+                }
+            });
+
+            document.getElementById('payment-modal').style.display = 'flex';
+            document.getElementById('submit-payment').disabled = false;
+            document.querySelector('.loading').style.display = 'none';
+            
+        } catch (error) {
+            console.error('Initialization Error:', error);
+            window.parent.postMessage({ 
+                type: 'paymentError',
+                message: 'Payment system initialization failed'
+            }, allowedOrigin);
+            closePayment();
+        }
+    }
+
+    // Handle Payment Submission
+    async function processPayment() {
+        try {
+            document.getElementById('submit-payment').disabled = true;
+            document.querySelector('.loading').style.display = 'block';
+
+            const payload = await braintreeInstance.requestPaymentMethod();
+            
+            // Process payment
+            const result = await fetch('https://guwzgnjdnchuvypsmzue.supabase.co/functions/v1/process-payment', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    nonce: payload.nonce,
+                    amount: paymentAmount,
+                    currency: 'USD',
+                    deviceData: payload.deviceData
+                })
+            });
+
+            const response = await result.json();
+            
+            if(response.success) {
+                window.parent.postMessage({
+                    type: 'paymentSuccess',
+                    transactionId: response.id,
+                    amount: paymentAmount,
+                    currency: 'USD'
+                }, allowedOrigin);
+            } else {
+                throw new Error(response.error || 'Payment processing failed');
+            }
+            
+            closePayment();
+            
+        } catch (error) {
+            window.parent.postMessage({
+                type: 'paymentError',
+                message: error.message
+            }, allowedOrigin);
+            document.getElementById('submit-payment').disabled = false;
+            document.querySelector('.loading').style.display = 'none';
+        }
+    }
+
+    function closePayment() {
+        document.getElementById('payment-modal').style.display = 'none';
+        if(braintreeInstance) {
+            braintreeInstance.teardown();
+        }
+        document.querySelector('.loading').style.display = 'none';
+        document.getElementById('submit-payment').disabled = false;
+    }
+
+    // Event Listeners
+    document.getElementById('submit-payment').addEventListener('click', processPayment);
+    
+    // Expose to FlutterFlow
+    window.showPaymentUI = initBraintree;
+    </script>
+</body>
+</html>
