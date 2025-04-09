@@ -1,142 +1,102 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Payment Gateway</title>
-  <style>
-    /* [KEEP EXISTING STYLES] */
-  </style>
+    <meta charset="UTF-8">
+    <title>Secure Payment Modal</title>
+    <script src="https://js.braintreegateway.com/web/dropin/1.31.0/js/dropin.min.js"></script>
+    <style>
+        body, html {
+            height: 100%;
+            margin: 0;
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: rgba(0,0,0,0.4);
+        }
+        #payment-modal {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            width: 300px;
+            text-align: center;
+        }
+        #submit-button {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            width: 100%;
+            font-size: 16px;
+            margin-top: 20px;
+        }
+        #submit-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+    </style>
 </head>
 <body>
-  <div id="modal">
-    <button id="cancel-button" aria-label="Cancel payment">&times;</button>
-    <div id="loading">Initializing payment system...</div>
-    <div id="dropin-container" style="display:none;"></div>
-    <button id="pay-button" style="display:none;">Pay $1000</button>
-    <div id="result"></div>
-  </div>
+<div id="payment-modal">
+    <h2>Payment Details</h2>
+    <div id="dropin-container"></div>
+    <button id="submit-button" disabled>Pay $1000</button>
+</div>
 
-  <!-- CHANGED: Updated to latest Braintree version -->
-  <script src="https://js.braintreegateway.com/web/dropin/1.44.1/js/dropin.min.js"></script>
-  
-  <script>
-    // ========== MUST CHANGE THESE ========== //
-    const tokenUrl = "https://guwzgnjdnchuvypsmzue.supabase.co/functions/v1/generate-client-token";
-    const paymentUrl = "https://guwzgnjdnchuvypsmzue.supabase.co/functions/v1/process-payment";
-    const supabaseAnonKey = "ee49000c68f7fd3d4af2ceb0b44bb0125a1d0c18d793b91cdd5481a595c7e4de"; // Get from Supabase Dashboard
-    // ======================================== //
+<script>
+    var button = document.querySelector('#submit-button');
 
-    const paymentAmount = 1000.00; // USD
-
-    function sendResultMessage(status, detail) {
-      window.parent.postMessage({ 
-        type: 'paymentResult',
-        status: status,
-        detail: detail 
-      }, "*");
-    }
-
-    document.getElementById("cancel-button").addEventListener("click", () => {
-      sendResultMessage("cancelled", "User cancelled payment");
-      // Optional: Add code to close modal if needed
-    });
-
-    async function startBraintreeDropin() {
-      try {
-        // Added authorization header
-        const tokenResponse = await fetch(tokenUrl, { 
-          method: "GET",
-          headers: {
-            "Authorization": `Bearer ${ee49000c68f7fd3d4af2ceb0b44bb0125a1d0c18d793b91cdd5481a595c7e4de}`,
-            "Content-Type": "application/json"
-          }
-        });
-
-        if (!tokenResponse.ok) {
-          throw new Error(`Token error: ${tokenResponse.status}`);
+    fetch('https://guwzgnjdnchuvypsmzue.supabase.co/functions/v1/generate-client-token', {
+        headers: {
+           'Content-Type': 'application/json',
+            'Authorization': 'Bearer ee49000c68f7fd3d4af2ceb0b44bb0125a1d0c18d793b91cdd5481a595c7e4de'
         }
-
-        const tokenData = await tokenResponse.json();
-        
-        // Added validation
-        if (!tokenData.clientToken) {
-          throw new Error("Invalid client token format");
-        }
-
-        const dropinInstance = await braintree.dropin.create({
-          authorization: tokenData.clientToken,
-          container: "#dropin-container",
-          paymentOptionPriority: ["card", "paypal"],
-          paypal: {
-            flow: "checkout",
-            amount: paymentAmount,
-            currency: "USD"
-          },
-          card: {
-            overrides: {
-              styles: {
-                input: {
-                  "font-size": "16px",
-                  "color": "#333"
-                }
-              }
+    })
+    .then(function (response) {
+        return response.json();
+    })
+    .then(function (data) {
+        braintree.dropin.create({
+            authorization: data.clientToken,
+            selector: '#dropin-container',
+            paypal: {
+                flow: 'vault'
             }
-          }
-        });
-
-        // UI Updates
-        document.getElementById("dropin-container").style.display = "block";
-        document.getElementById("pay-button").style.display = "inline-block";
-        document.getElementById("loading").style.display = "none";
-
-        document.getElementById("pay-button").addEventListener("click", async () => {
-          const payButton = document.getElementById("pay-button");
-          payButton.disabled = true;
-          document.getElementById("result").textContent = "Processing...";
-
-          try {
-            const { nonce } = await dropinInstance.requestPaymentMethod();
-            
-            // Added authorization header
-            const paymentResponse = await fetch(paymentUrl, {
-              method: "POST",
-              headers: { 
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${ee49000c68f7fd3d4af2ceb0b44bb0125a1d0c18d793b91cdd5481a595c7e4de}`
-              },
-              body: JSON.stringify({
-                paymentMethodNonce: nonce,
-                amount: paymentAmount
-              })
+        }, function (createErr, instance) {
+            button.addEventListener('click', function () {
+                instance.requestPaymentMethod(function (err, payload) {
+                    if (err) {
+                        console.error('Error:', err);
+                        return;
+                    }
+                    // Submit payload.nonce to your server
+                    fetch('https://guwzgnjdnchuvypsmzue.supabase.co/functions/v1/process-payment', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': 'Bearer ee49000c68f7fd3d4af2ceb0b44bb0125a1d0c18d793b91cdd5481a595c7e4de'
+                        },
+                        body: JSON.stringify({nonce: payload.nonce, amount: "1000"})
+                    })
+                    .then(function (response) {
+                        return response.json();
+                    })
+                    .then(function (data) {
+                        if (data.success) {
+                            alert('Payment successful!');
+                        } else {
+                            alert('Payment failed: ' + data.message);
+                        }
+                    });
+                });
             });
-
-            const paymentResult = await paymentResponse.json();
-            
-            if (paymentResult.success) {
-              sendResultMessage("success", {
-                transactionId: paymentResult.id,
-                amount: paymentAmount
-              });
-              document.getElementById("result").textContent = "Payment Successful!";
-            } else {
-              throw new Error(paymentResult.error || "Payment failed");
-            }
-          } catch (err) {
-            console.error("Payment error:", err);
-            document.getElementById("result").textContent = err.message;
-            sendResultMessage("error", err.message);
-          } finally {
-            payButton.disabled = false;
-          }
+            button.disabled = false;
         });
-      } catch (error) {
-        console.error("Initialization error:", error);
-        document.getElementById("loading").textContent = "Initialization Failed";
-        sendResultMessage("error", error.message);
-      }
-    }
-
-    startBraintreeDropin();
-  </script>
+    });
+</script>
 </body>
 </html>
+
