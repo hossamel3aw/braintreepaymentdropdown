@@ -45,58 +45,73 @@
     <div id="dropin-container"></div>
     <button id="submit-button" disabled>Pay $1000</button>
 </div>
-
 <script>
     var button = document.querySelector('#submit-button');
 
+    // Fetch the client token
     fetch('https://guwzgnjdnchuvypsmzue.supabase.co/functions/v1/generate-client-token', {
         headers: {
-                        method: 'POST',
-           'Content-Type': 'application/json',
+            'Content-Type': 'application/json',
             'Authorization': 'Bearer ee49000c68f7fd3d4af2ceb0b44bb0125a1d0c18d793b91cdd5481a595c7e4de'
         }
     })
     .then(function (response) {
+        if (!response.ok) {
+            throw new Error('Failed to fetch client token: ' + response.statusText);
+        }
         return response.json();
     })
     .then(function (data) {
-        braintree.dropin.create({
+        if (!data.clientToken) {
+            throw new Error('No client token in response');
+        }
+        return braintree.dropin.create({
             authorization: data.clientToken,
             selector: '#dropin-container',
             paypal: {
                 flow: 'vault'
             }
-        }, function (createErr, instance) {
-            button.addEventListener('click', function () {
-                instance.requestPaymentMethod(function (err, payload) {
-                    if (err) {
-                        console.error('Error:', err);
-                        return;
+        });
+    })
+    .then(function (instance) {
+        button.disabled = false;  // Enable the button only if Braintree initializes successfully
+        button.addEventListener('click', function () {
+            instance.requestPaymentMethod(function (err, payload) {
+                if (err) {
+                    console.error('Error:', err);
+                    alert('Error processing payment method: ' + err.message);
+                    return;
+                }
+                fetch('https://guwzgnjdnchuvypsmzue.supabase.co/functions/v1/process-payment', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ee49000c68f7fd3d4af2ceb0b44bb0125a1d0c18d793b91cdd5481a595c7e4de'
+                    },
+                    body: JSON.stringify({nonce: payload.nonce, amount: "1000"})
+                })
+                .then(function (response) {
+                    if (!response.ok) {
+                        throw new Error('Failed to process payment: ' + response.statusText);
                     }
-                    // Submit payload.nonce to your server
-                    fetch('https://guwzgnjdnchuvypsmzue.supabase.co/functions/v1/process-payment', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': 'Bearer ee49000c68f7fd3d4af2ceb0b44bb0125a1d0c18d793b91cdd5481a595c7e4de'
-                        },
-                        body: JSON.stringify({nonce: payload.nonce, amount: "1000"})
-                    })
-                    .then(function (response) {
-                        return response.json();
-                    })
-                    .then(function (data) {
-                        if (data.success) {
-                            alert('Payment successful!');
-                        } else {
-                            alert('Payment failed: ' + data.message);
-                        }
-                    });
+                    return response.json();
+                })
+                .then(function (data) {
+                    if (data.success) {
+                        alert('Payment successful!');
+                    } else {
+                        throw new Error('Payment failed: ' + data.message);
+                    }
+                })
+                .catch(function (error) {
+                    alert(error.message);
                 });
             });
-            button.disabled = false;
         });
+    })
+    .catch(function (error) {
+        console.error('Error initializing Braintree:', error);
+        button.disabled = true; // Keep the button disabled if there are initialization errors
+        alert('Failed to initialize payment form: ' + error.message);
     });
 </script>
-</body>
-</html>
