@@ -1,68 +1,104 @@
 <!DOCTYPE html>
-<html>
-  <head>
-    <title>Braintree Drop-in Test</title>
-    <script src="https://js.braintreegateway.com/web/dropin/1.40.1/js/dropin.min.js"></script>
-    <style>
-      body { font-family: sans-serif; padding: 2rem; }
-      #dropin-container { margin-bottom: 1rem; }
-    </style>
-  </head>
-  <body>
-    <h2>Pay $1000</h2>
-    <div id="dropin-container"></div>
-    <button id="submit-button">Pay</button>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Fancy Guys Payment</title>
+  <script src="https://js.braintreegateway.com/web/dropin/1.40.1/js/dropin.min.js"></script>
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 2rem;
+      background-color: #f7f7f7;
+      text-align: center;
+    }
 
-    <script>
-      // STEP 1: Get client token from Supabase
-      fetch("https://guwzgnjdnchuvypsmzue.supabase.co/functions/v1/generate-client-token")
-        .then(res => res.json())
-        .then(data => {
-          braintree.dropin.create({
-            authorization: data.clientToken,
-            container: "#dropin-container",
-            paypal: { flow: 'vault' },
-            googlePay: {
-              googlePayVersion: 2,
-              merchantId: 'jmj746j7dm3r9kyy', // Use your real Google merchant ID for production
-              transactionInfo: {
-                totalPriceStatus: 'FINAL',
-                totalPrice: '1000.00',
-                currencyCode: 'USD'
+    #dropin-container {
+      margin: 2rem auto;
+      max-width: 400px;
+    }
+
+    #submit-button {
+      padding: 10px 20px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h2>Pay $1000 to Join Fancy Guys</h2>
+
+  <div id="dropin-container"></div>
+  <button id="submit-button">Pay</button>
+
+  <script>
+    // STEP 1: Get the client token from Supabase Edge Function
+    fetch("https://guwzgnjdnchuvypsmzue.supabase.co/functions/v1/generate-client-token")
+      .then(res => res.json())
+      .then(data => {
+        if (!data.success || !data.clientToken) {
+          alert("❌ Failed to load client token.");
+          return;
+        }
+
+        braintree.dropin.create({
+          authorization: data.clientToken,
+          container: '#dropin-container',
+          paypal: {
+            flow: 'vault'
+          },
+          googlePay: {
+            googlePayVersion: 2,
+            merchantId: 'jmj746j7dm3r9kyy',
+            transactionInfo: {
+              totalPriceStatus: 'FINAL',
+              totalPrice: '1000.00',
+              currencyCode: 'USD'
+            }
+          }
+        }, (err, dropinInstance) => {
+          if (err) {
+            console.error("Drop-in Error:", err);
+            alert("❌ Failed to load payment interface.");
+            return;
+          }
+
+          document.getElementById('submit-button').addEventListener('click', () => {
+            dropinInstance.requestPaymentMethod((err, payload) => {
+              if (err) {
+                console.error("Payment Method Error:", err);
+                alert("❌ Failed to get payment method.");
+                return;
               }
-            }
-          }, (err, dropinInstance) => {
-            if (err) {
-              console.error("Dropin Error:", err);
-              return;
-            }
 
-            document.getElementById("submit-button").addEventListener("click", () => {
-              dropinInstance.requestPaymentMethod((err, payload) => {
-                if (err) {
-                  console.error("Payment Method Error:", err);
-                  return;
+              // STEP 2: Send the nonce to Supabase to process the payment
+              fetch("https://guwzgnjdnchuvypsmzue.supabase.co/functions/v1/process-payment", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ paymentMethodNonce: payload.nonce })
+              })
+              .then(res => res.json())
+              .then(result => {
+                if (result.success) {
+                  alert("✅ Payment successful! Redirecting to create your account...");
+                  setTimeout(() => {
+                    window.location.href = "https://fancyguys.art/createaccount";
+                  }, 1000);
+                } else {
+                  alert("❌ Payment failed: " + (result.error || "Unknown error"));
                 }
-
-                // STEP 2: Send nonce to Supabase to process payment
-                fetch("https://guwzgnjdnchuvypsmzue.supabase.co/functions/v1/process-payment", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ paymentMethodNonce: payload.nonce })
-                })
-                .then(res => res.json())
-                .then(result => {
-                  if (result.success) {
-                    alert("Payment successful! Transaction ID: " + result.transactionId);
-                  } else {
-                    alert("Payment failed: " + (result.error || "Unknown error"));
-                  }
-                });
+              })
+              .catch(error => {
+                console.error("Fetch error:", error);
+                alert("❌ Network error during payment.");
               });
             });
           });
         });
-    </script>
-  </body>
+      })
+      .catch(err => {
+        console.error("Token Fetch Error:", err);
+        alert("❌ Could not retrieve payment token.");
+      });
+  </script>
+</body>
 </html>
-
